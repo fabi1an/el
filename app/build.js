@@ -1,8 +1,9 @@
+import { execSync } from "child_process";
+import { rmSync } from "fs";
+
 import { commonjs } from "@hyrious/esbuild-plugin-commonjs";
 import importGlobPlugin from "@sirse-dev/esbuild-plugin-import-glob";
 import { build } from "esbuild";
-import { execSync } from "child_process";
-import { rmSync } from "fs";
 
 rmSync("dist", { recursive: true, force: true });
 
@@ -24,14 +25,8 @@ build({
   plugins: [commonjs(), importGlobPlugin.default()],
 })
   .then(() =>
-    execSync(
-      `electron-builder ${process.platform === "win32"
-        ? "--" + process.arch
-        : process.platform === "darwin"
-          ? "--mac"
-          : "--linux --" + process.arch
-      }`,
-      { stdio: "inherit" }
-    )
+    execSync(`electron-builder ${process.platform === "win32" ? "--" + process.arch : process.platform === "darwin" ? "--mac" : "--linux --" + process.arch}`, {
+      stdio: "inherit",
+    }),
   )
   .catch(() => process.exit(1));

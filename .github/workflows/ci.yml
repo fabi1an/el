@@ -64,7 +64,7 @@ jobs:
         uses: samuelmeuli/action-snapcraft@master
         # Only install Snapcraft on Ubuntu
         if: startsWith(matrix.os, 'ubuntu')
-        
+
       - name: Get package info
         id: package-info
         uses: luizfelipelaviola/get-package-info@v1
@@ -120,7 +120,7 @@ jobs:
             for DIR in "win-unpacked" "win-ia32-unpacked"; do
               if [ -d "./electron/$DIR" ]; then
                 ZIP_NAME="${NAME}-${VERSION}-${OS}-${ARCH}.portable.zip"
-                powershell Compress-Archive -Path "./electron/$DIR/*" -DestinationPath "./artifacts/$ZIP_NAME"
+                7z a -tzip -mx9 "./artifacts/$ZIP_NAME.zip" "./electron/$DIR/*"
                 echo "\`ARTIFACT\`: $ZIP_NAME" >> $GITHUB_STEP_SUMMARY
               fi
             done
@@ -151,7 +151,7 @@ jobs:
       - name: List Artifacts (Debugging)
         run: |
           find ./ -type f
-      
+
       - name: Generate Nightly release notes
         id: generate-notes
         run: |
@@ -162,7 +162,7 @@ jobs:
           contain bugs. Use at your own risk. Please report any issues you
           encounter as separate GitHub Issues.
           EOF)
-          
+
           echo "body=$(jq --null-input --arg body "$body" '$body')" >> $GITHUB_OUTPUT
 
       - name: Update Nightly Release
@@ -170,7 +170,7 @@ jobs:
         with:
           name: Nightly Release
           body: ${{ fromJSON(steps.generate-notes.outputs.body) }}
-          tag_name: nightly
+          tag_name: nightly-${{ env.VERSION }}
           prerelease: true
           files: |
             ./artifacts/*${{ env.VERSION }}*.AppImage
