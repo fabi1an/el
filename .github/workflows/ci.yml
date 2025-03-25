@@ -1,0 +1,182 @@
+name: Build and Release Electron App
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '**/*.md'
+      - '**/.gitignore'
+      - '**/LICENSE'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  pull-requests: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-13, ubuntu-latest, windows-latest]
+        node: [22]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        name: Install pnpm
+        with:
+          version: 10
+          run_install: false
+
+      - name: Setup Node.js "${{ matrix.node }}.x" environment
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+
+      - name: Setup Python environment (Mac)
+        if: startsWith(matrix.os, 'macos')
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies for Flatpak
+        if: startsWith(matrix.os, 'ubuntu')
+        run: sudo apt-get update && sudo apt-get install -y flatpak-builder binutils
+
+      - name: Install Snapcraft
+        uses: samuelmeuli/action-snapcraft@master
+        # Only install Snapcraft on Ubuntu
+        if: startsWith(matrix.os, 'ubuntu')
+        
+      - name: Get package info
+        id: package-info
+        uses: luizfelipelaviola/get-package-info@v1
+        with:
+          path: ./app
+
+      - name: Setup environment variables
+        run: |
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            echo "HOME=$USERPROFILE" >> $GITHUB_ENV
+            echo "ELECTRON_CACHE=$USERPROFILE/AppData/Local/electron" >> $GITHUB_ENV
+            echo "ELECTRON_BUILDER_CACHE=$USERPROFILE/AppData/Local/electron-builder" >> $GITHUB_ENV
+          else
+            echo "ELECTRON_CACHE=$HOME/.cache/electron" >> $GITHUB_ENV
+            echo "ELECTRON_BUILDER_CACHE=$HOME/.cache/electron-builder" >> $GITHUB_ENV
+          fi
+          echo "VERSION=${{ steps.package-info.outputs.version }}" >> $GITHUB_ENV
+          echo "NAME=${{ steps.package-info.outputs.name }}" >> $GITHUB_ENV
+
+      - name: Cache electron modules
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.ELECTRON_CACHE }}
+          key: electron-cache-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('./pnpm-lock.yaml') }}
+
+      - name: Cache electron-builder modules
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.ELECTRON_BUILDER_CACHE }}
+          key: electron-builder-cache-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('./pnpm-lock.yaml') }}
+
+      - name: Install node dependencies
+        run: pnpm install --frozen-lockfile --prefer-offline --recursive
+
+      - name: Compile
+        working-directory: ./app
+        run: pnpm build
+
+      - name: Move artifacts
+        working-directory: ./app/dist
+        run: |
+          VERSION=${{ env.VERSION }}
+          NAME=${{ env.NAME }}
+          OS=$(echo "${{ runner.os }}" | tr '[:upper:]' '[:lower:]')
+          ARCH=$(echo "${{ runner.arch }}" | tr '[:upper:]' '[:lower:]')
+          mkdir -p ./artifacts
+          find ./electron -type f -name "*${VERSION}*" | while read -r FILE; do
+            FILENAME="${NAME}-${VERSION}-${OS}-${ARCH}.${FILE##*.}"
+            mv "$FILE" "./artifacts/$FILENAME"
+            echo "\`ARTIFACT\`: $FILENAME" >> $GITHUB_STEP_SUMMARY
+          done
+          if [[ "$OS" == "windows" ]]; then
+            for DIR in "win-unpacked" "win-ia32-unpacked"; do
+              if [ -d "./electron/$DIR" ]; then
+                ZIP_NAME="${NAME}-${VERSION}-${OS}-${ARCH}.portable.zip"
+                powershell Compress-Archive -Path "./electron/$DIR/*" -DestinationPath "./artifacts/$ZIP_NAME"
+                echo "\`ARTIFACT\`: $ZIP_NAME" >> $GITHUB_STEP_SUMMARY
+              fi
+            done
+          fi
+
+      - name: Verify artifacts
+        run: |
+          echo "Contents of artifacts directory:"
+          ls -l ./app/dist/artifacts
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@main
+        with:
+          name: ${{ matrix.os }}-builds
+          path: ./app/dist/artifacts/*
+          if-no-files-found: ignore
+          retention-days: 1
+
+  release:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/download-artifact@main
+        with:
+          path: ./artifacts
+          merge-multiple: true
+
+      - name: List Artifacts (Debugging)
+        run: |
+          find ./ -type f
+      
+      - name: Generate Nightly release notes
+        id: generate-notes
+        run: |
+          body=$(cat<<EOF
+          This is a nightly release of Dissent. It is built from the latest
+          commit on the `main` branch.
+          **Warning:** This release is not guaranteed to be stable and may
+          contain bugs. Use at your own risk. Please report any issues you
+          encounter as separate GitHub Issues.
+          EOF)
+          
+          echo "body=$(jq --null-input --arg body "$body" '$body')" >> $GITHUB_OUTPUT
+
+      - name: Update Nightly Release
+        uses: andelf/nightly-release@main
+        with:
+          name: Nightly Release
+          body: ${{ fromJSON(steps.generate-notes.outputs.body) }}
+          tag_name: nightly
+          prerelease: true
+          files: |
+            ./artifacts/*${{ env.VERSION }}*.AppImage
+            ./artifacts/*${{ env.VERSION }}*.snap
+            ./artifacts/*${{ env.VERSION }}*.dmg
+            ./artifacts/*${{ env.VERSION }}*.zip
+            ./artifacts/*${{ env.VERSION }}*.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

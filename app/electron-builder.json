@@ -1,0 +1,37 @@
+{
+    "$schema": "https://github.com/electron-userland/electron-builder/raw/refs/heads/master/packages/app-builder-lib/scheme.json",
+    "artifactName": "${version}-${arch}.${ext}",
+    "appId": "dev.lazuee.aqwps",
+    "productName": "Launcher",
+    "directories": {
+        "buildResources": "resources",
+        "output": "dist/electron"
+    },
+    "files": [
+        {
+            "from": "dist",
+            "to": "dist",
+            "filter": [
+                "**/*",
+                "!electron"
+            ]
+        },
+        {
+            "from": "resources",
+            "to": "resources",
+            "filter": [
+                "**/*",
+                "!plugins"
+            ]
+        },
+        "package.json"
+    ],
+    "extraResources": [
+        {
+            "from": "resources/plugins/${platform}/${arch}",
+            "to": "plugins/${platform}/${arch}",
+            "filter": "**/*"
+        }
+    ],
+    "npmRebuild": false
+}
