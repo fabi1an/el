@@ -122,7 +122,7 @@ jobs:
             for DIR in "win-unpacked" "win-ia32-unpacked"; do
               if [ -d "./electron/$DIR" ]; then
                 ZIP_NAME="${NAME}-${VERSION}-${OS}-${ARCH}-${SHORT_SHA}.portable.zip"
-                7z a -tzip -mx9 "./artifacts/$ZIP_NAME.zip" "./electron/$DIR/*"
+                7z a -tzip -mx9 "./artifacts/$ZIP_NAME" "./electron/$DIR/*"
                 echo "\`ARTIFACT\`: $ZIP_NAME" >> $GITHUB_STEP_SUMMARY
               fi
             done
@@ -157,8 +157,9 @@ jobs:
       - name: Generate Nightly release notes
         id: generate-notes
         run: |
+          SHORT_SHA=${{ env.SHORT_SHA }}
           body=$(cat<<EOF
-          Development release for commit ${{ env.SHORT_SHA }}
+          Development release for commit $SHORT_SHA
           EOF)
 
           echo "body=$(jq --null-input --arg body "$body" '$body')" >> $GITHUB_OUTPUT
