@@ -170,7 +170,7 @@ jobs:
         with:
           name: Nightly Release
           body: ${{ fromJSON(steps.generate-notes.outputs.body) }}
-          tag_name: nightly-${{ env.VERSION }}
+          tag_name: "nightly-${{ env.VERSION }}"
           prerelease: true
           files: |
             ./artifacts/*${{ env.VERSION }}*.AppImage
